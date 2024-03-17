@@ -1,0 +1,211 @@
+---
+title: "Analysis Of Road Casualties"
+subtitle: "Using UKDriverDeaths and Seatbelts"
+author:
+- name: Konrad Handke
+date: "March 2024"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Prophet Installation
+
+I installed prophet as stated in the instructions using both `install.packages("prophet")` and `install.packages("remotes")` -> `remotes::install_github('facebook/prophet@*release', subdir='R')`. I personally did not see any difference in the installations.
+
+```{r}
+library(prophet)
+```
+
+# UK Driver Deaths
+
+The data set I will use is called `UKDriverDeaths` and is an inbuilt R data set. This data provides information on the total number of drivers who were killed or seriously injured in Great Britain from 1969 to 1984. I will also be using the multiple time-series data set `Seatbelts`, which provides the same data as well as further information about this topic. The main goal of my research is to identify any correlations or patterns to do with drivers who were killed or injured.
+
+As my data is to do with vehicles, it is important to note that vehicle safety for the most part improves every year, and not only factors considered here will be the reason for deaths decreasing. For example, in the UK [airbags](https://www.uk-car-discount.co.uk/jargon/airbags-a-life-saving-technology#:~:text=Airbags%20were%20first%20developed%20in,in%20the%20UK%20in%202003.) were introduced in the 1970s. There are also many [other ways](https://www.theaa.com/breakdown-cover/advice/evolution-of-car-safety-features) safety has improved.
+
+Starting out, I will be using a simple plot to visualize the data. The graph will also feature a line at the mean for monthly deaths. After this, using the decompose function, we can split the data into four different components: observed, trend, seasonal, and random. This will be useful as it will reveal patterns in the data and will also be used throughout this research.
+
+```{r}
+plot(UKDriverDeaths, main = "Driver deaths per month from 1969-1984",  xlab = "Year", ylab = "Casualty Count")
+abline(mean(UKDriverDeaths), 0, col = "red")
+
+UKDD_decompose = decompose(UKDriverDeaths)
+plot(UKDD_decompose)
+```
+
+For my research, the most important components are the 'trend' and 'seasonal' from the data. Throughout this document, I will be looking at these in more detail. 
+
+## Forecasting
+
+I use prophet here to forecast five years into the future.
+
+```{r}
+UKDriverDeaths.df = data.frame(ds = zoo::as.yearmon(time(UKDriverDeaths)), y = UKDriverDeaths)
+UKDD_model1 = prophet(UKDriverDeaths.df, yearly.seasonality = T, weekly.seasonality = F, daily.seasonality = F)
+UKDD_model1_forecast = make_future_dataframe(UKDD_model1, periods = 60, freq = "month")
+UKDD_model1_predict = predict(UKDD_model1, UKDD_model1_forecast)
+plot(UKDD_model1, UKDD_model1_predict, xlab = "Year", ylab = "Casualty Count")
+```
+
+This plot illustrates a mostly decreasing cyclical pattern. From the decomposition, we know that this forecast would fit as it matches the trend. We can also see that over a year, there is a clear time when casualties increase and decrease. As observed from the decomposition, this could be due to seasonality such as Christmas, as you can safely assume there would be more cars on the streets during this period. 
+
+## Holidays
+
+Using prophet we can model holidays dates such as Christmas, and see the effects it has. However, the data for UK Driver Deaths is per month instead of daily, so I will take Christmas as the all of December (so 12-01), rather than just 25-01 with a lower/higher window. This could lead to lower accuracy results. 
+
+```{r}
+Christmas = data.frame(
+  holiday = "Christmas", 
+  ds = as.Date(c("1969-12-01", "1970-12-01", "1971-12-01", "1972-12-01", "1973-12-01", "1974-12-01", "1975-12-01", "1976-12-01", "1977-12-01", "1978-12-01", "1979-12-01", "1980-12-01", "1981-12-01", "1982-12-01", "1983-12-01", "1984-12-01", "1985-12-01", "1986-12-01", "1987-12-01", "1988-12-01", "1989-12-01")))
+UKDD_model2 = prophet(UKDriverDeaths.df, yearly.seasonality = T, weekly.seasonality = F, daily.seasonality = F, holidays = Christmas)
+UKDD_model2_forecast = make_future_dataframe(UKDD_model2, periods = 60, freq = "month")
+UKDD_model2_predict = predict(UKDD_model2, UKDD_model2_forecast)
+plot(UKDD_model2, UKDD_model2_predict, xlab = "Year", ylab = "Casualty Count")
+```
+
+I do not see any difference in the graphs which might be caused by using all of December. This is not necessarily an issue, as we can use a function from the prophet library to isolate components from the data. 
+
+```{r}
+prophet_plot_components(UKDD_model2, UKDD_model2_predict)
+```
+
+Looking at these graphs, as stated before there is an overall downwards trend over time. We also see a the holiday effect, which is consistent every year, which matches with the first decomposition. Although, when comparing both seasonal components, in the first decomposition, the largest spike seems to be much wider. This indicates that it probably starts during October or November, where as the prophet decomposition takes into account only December. When further observing the prophet decomposition, in the yearly graph, there is a clear spike during August, which is something not seen in the data or the first decomposition. This could be another holiday period such as the summer holidays.
+
+Using the same method, I will add August as a holiday.
+
+```{r}
+summer_holidays = data.frame(
+  holiday = "summer holidays", 
+  ds = as.Date(c("1969-8-01", "1970-8-01", "1971-8-01", "1972-8-01", "1973-8-01", "1974-8-01", "1975-8-01", "1976-8-01", "1977-8-01", "1978-8-01", "1979-8-01", "1980-8-01", "1981-8-01", "1982-8-01", "1983-8-01", "1984-8-01", "1985-8-01", "1986-8-01", "1987-8-01", "1988-8-01", "1989-8-01"))
+  )
+holidays = dplyr::bind_rows(Christmas, summer_holidays)
+UKDD_model3 = prophet(UKDriverDeaths.df, yearly.seasonality = T, weekly.seasonality = F, daily.seasonality = F, holidays = holidays)
+UKDD_model3_forecast = make_future_dataframe(UKDD_model3, periods = 60, freq = "month")
+UKDD_model3_predict = predict(UKDD_model3, UKDD_model3_forecast)
+plot(UKDD_model3, UKDD_model3_predict, xlab = "Year", ylab = "Casualty Count")
+```
+
+As before, this graph still looks identical to the very first one.
+
+```{r}
+prophet_plot_components(UKDD_model3, UKDD_model3_predict)
+
+plot_forecast_component(UKDD_model3, UKDD_model3_predict, "summer holidays")
+```
+
+From the graph we can see that there is a spike during August, suggesting a holiday period. However, when looking into more detail, the height of the spike is not close to that of December. This means that August is not as important as December. This is interesting as the yearly graph suggests it would be the opposite.
+
+## Linear Regression
+
+### Linear Model
+
+To create a linear model I have copied the data into a new data frame. In this new data frame, I have changed the dates into a sequence of numbers from 1 to 192 so that it is easier to work with. 
+
+```{r}
+UKDD_Lin_Reg.df = UKDriverDeaths.df
+UKDD_Lin_Reg.df$ds = 1:192 
+UKDD_Linear_Regression = lm(y~ds, data = UKDD_Lin_Reg.df)
+summary(UKDD_Linear_Regression)
+```
+
+From the summary, we can gather that the data does indeed have a downwards trajectory from $\beta_1$ = -2.337. We can also look at the F-statistic: 47.81 on 1 and 190 DF and the p-value: 6.939e-11. These figures, especially the small p-value, suggest we can reject the null hypothesis that there is no relationship between deaths and time, meaning that there is a relationship between time and death. 
+
+### Residuals Vs Fitted
+
+```{r}
+plot(fitted(UKDD_Linear_Regression), rstandard(UKDD_Linear_Regression), main = "Residuals vs Fitted", xlab = "Fitted Values", ylab = "Standardized Residuals", type = "p")
+abline(0, 0)
+```
+
+Most of the points seem to be randomly placed, suggesting no pattern. Most of the peaks are seen slightly above 2, with only one point being above 3, potentially being an outlier. What is interesting to me however, is that when you join the points you can see what might be a pattern as seen below.
+
+```{r}
+plot(fitted(UKDD_Linear_Regression), rstandard(UKDD_Linear_Regression), main = "Residuals vs Fitted", xlab = "Fitted Values", ylab = "Standardized Residuals", type = "l")
+abline(0,0)
+```
+
+As we can see, there seems to be a cyclical pattern as the points shoot up and down at close to the same intervals. This goes in line with the first plot, which shows the same concept. This would suggest that a linear model would more then likely not be a good fit for this data. 
+
+# Seat Belts
+
+As said before, `Seatbelts` is a multiple time-series. It focuses on the same data as `UKDriverDeaths`, but just goes into a lot more detail with the following columns:
+
+* `DriversKilled`: car drivers killed. 
+* `drivers`: same data as `UKDriverDeaths`
+* `front`: front-seat passengers killed or injured
+* `rear`: rear-seat passengers killed or injured
+* `kms`: distance driven
+* `PetrolPrice`: price of petrol
+* `VanKilled`: number of van drivers killed
+* `law`: has seat belt law put into effect (31 January 1983)
+
+## Distance driven and Petrol Price
+
+Using prophet again, I have modeled `kms` and `PetrolPrice`.
+
+```{r}
+data(Seatbelts)
+
+seatbelts_kms.df = data.frame(ds = zoo::as.yearmon(time(Seatbelts)), y = Seatbelts[, "kms"])
+seatbelts1_kms = prophet(seatbelts_kms.df, yearly.seasonality = T, weekly.seasonality = F, daily.seasonality = F)
+seatbelts_forecast1_kms = make_future_dataframe(seatbelts1_kms, periods = 24, freq = "month")
+seatbelts_predict1_kms = predict(seatbelts1_kms, seatbelts_forecast1_kms)
+plot(seatbelts1_kms, seatbelts_predict1_kms, xlab = "Year", ylab = "Distance Driven (KMs)")
+
+seatbelts_PetrolPrice.df = data.frame(ds = zoo::as.yearmon(time(Seatbelts)), y = Seatbelts[, "PetrolPrice"])
+seatbelts1_PetrolPrice = prophet(seatbelts_PetrolPrice.df, yearly.seasonality = T, weekly.seasonality = F, daily.seasonality = F)
+seatbelts_forecast1_PetrolPrice = make_future_dataframe(seatbelts1_PetrolPrice, periods = 24, freq = "month")
+seatbelts_predict1_PetrolPrice = predict(seatbelts1_PetrolPrice, seatbelts_forecast1_PetrolPrice)
+plot(seatbelts1_PetrolPrice, seatbelts_predict1_PetrolPrice, xlab = "Year", ylab = "Petrol Price")
+```
+
+Both of these graphs show an overall increasing trend. This is interesting as you could assume that when the petrol price is increased, the distance driven would be decreased. It is also important to mention, that driver deaths decrease with higher distance driven. This also seems like a contradiction, as you would expect the opposite. As said in the start, vehicles become safer over time and I assume this is why this contradiction occurs. 
+
+```{r}
+correlation_PetrolPrice_kms = cor(seatbelts_PetrolPrice.df$y, seatbelts_kms.df$y)
+correlation_UKDriverDeaths_kms = cor(UKDriverDeaths.df$y, seatbelts_kms.df$y)
+correlation_PetrolPrice_UKDriverDeaths = cor(seatbelts_PetrolPrice.df$y, UKDriverDeaths.df$y)
+```
+
+By looking at the correlations, we can further prove what was said above. 
+
+* The correlation between petrol price and distance driven is `r correlation_PetrolPrice_kms` which suggests a weak positive linear relationship.
+* The correlation between driver deaths and distance driven is `r correlation_UKDriverDeaths_kms` which suggests a moderate negative linear relationship
+* The correlation between petrol price and driver deaths is `r correlation_PetrolPrice_UKDriverDeaths` which suggests a moderate negative linear relationship
+
+## Seat Belt Law
+
+For most of the data, seat belt law has not yet been introduced. It was introduced in [1983](https://www.gov.uk/government/news/thirty-years-of-seatbelt-safety#:~:text=The%20law%20requiring%20all%20drivers,force%20for%20another%2018%20years.), however, seat belt wearing became compulsory for all rear-seat occupants in 1991. This would mean that there are only 23 data points which contain data when a seat belt was worn, but again, only 90% of car drivers and front-seat passengers were observed to be wearing seat belts. For the purpose of my research, I will disregard all of these facts and assume that from 1983, February, the front seat passengers wore their seat belts while the rear seat passengers did not. 
+
+To do this, I will create a new data frame that houses that data for: front, rear and law. After this, I will separate by law as that is written as 1 or 0. 
+```{r}
+seatbelts_law.df = data.frame(ds = zoo::as.yearmon(time(Seatbelts)), front = Seatbelts[, "front"], rear = Seatbelts[, "rear"], law = Seatbelts[, "law"])
+law_0.df = subset(seatbelts_law.df, law == 0)
+law_1.df = subset(seatbelts_law.df, law == 1)
+
+plot(law_0.df$ds, law_0.df$front, col = "red", type = "l", ylim = c(200,1300), xlab = "Year", ylab = "Casualty Count", main = "Front and Rear Seat Casualties Before Law")
+lines(law_0.df$ds, law_0.df$rear, col = "green", type = "l")
+mean_front_law_0 = mean(law_0.df$front)
+mean_rear_law_0 = mean(law_0.df$rear)
+abline(mean_front_law_0, 0, col = "blue")
+abline(mean_rear_law_0, 0, col = "orange")
+
+plot(law_1.df$ds, law_1.df$front, col = "red", type = "l", ylim = c(200,800), xlab = "Month", ylab = "Casualty Count", main = "Front and Rear Seat Casualties After Law")
+lines(law_1.df$ds, law_1.df$rear, col = "green", type = "l")
+mean_front_law_1 = mean(law_1.df$front)
+mean_rear_law_1 = mean(law_1.df$rear)
+abline(mean_front_law_1, 0, col = "blue")
+abline(mean_rear_law_1, 0, col = "orange")
+```
+
+In both graphs, the red line is the front seat, while the green line is the rear. We can see from the graphs, that the amount of front seat injuries is very different before and after law, although the count before law was already starting to decrease. The peak before law was over 1200 while after law it did not even reach 800. We also see that the mean has changed from `r mean_front_law_0`, to `r mean_front_law_1`. The Rear passenger count actually increased to a new mean of `r mean_rear_law_1`, compared to the previous `r mean_rear_law_0`. As we know, seat belts were only obligatory for the front seat passengers, so this does make sense. However, as said previously these finding should be seen with 100% accuracy as there is not enough data points and some important context has been left out. 
+
+# Conclusion
+
+Upon conducting this research, I have found that there is a clear relationship between driver deaths and the passage of time. As shown, driver deaths do in fact decrease over time, and this can be attributed to multiple causes. One of them as discussed is the improvement in the vehicle safety. A subsection of vehicle safety that was looked at was seat belt law, which shows that when seat belts were established by law there was a clear decrease in front seat deaths. Another thing that was looked at was a forecast into the future, as well as seasonal factors that may effect the amount of driver deaths. We can safely assume from the data here that the forecast is mostly correct, as we can assume driver deaths will decrease. I have also shown that over Christmas and the summer holidays driver deaths do indeed go up. Given all of these findings, it is safe to say that there are clear correlations and patterns to do with drivers who were killed or injured.
